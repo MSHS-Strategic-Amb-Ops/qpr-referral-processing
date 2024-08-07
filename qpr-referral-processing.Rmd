@@ -1,0 +1,137 @@
+---
+title: "qpr-referral-processing"
+author: "Riya"
+date: "2024-08-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(glue)
+library(odbc)
+library(tidyverse)
+library(DBI)
+library(pool)
+
+
+## creating qpr scheduling processed table
+
+access_referral_pivot_drop <- glue("DROP TABLE DEV_ACCESS_REFERRAL_PIVOT")
+access_referral_pivot_query <- glue("CREATE TABLE DEV_ACCESS_REFERRAL_PIVOT AS
+                                    SELECT *
+                                    FROM ( 
+                                    SELECT DISTINCT REFERRAL_ID, DERIVED_STATUS_DESC
+                                    FROM MV_DM_PATIENT_ACCESS
+                                    )
+                                    PIVOT (
+                                    COUNT(DERIVED_STATUS_DESC)
+                                    FOR DERIVED_STATUS_DESC IN ('Scheduled' AS Scheduled, 'Arrived' AS Arrived, 'Bumped' AS Bumped, 'Canceled' AS Canceled,
+                                    'Rescheduled' AS Rescheduled, 'No Show' AS NoShow, 'Other' AS Other)
+                                    )
+                                    ORDER BY REFERRAL_ID;")
+
+
+CASE WHEN (REF.PEND_RSN_C <> 28 OR REF.PEND_RSN_C IS NULL) AND (REF.RFL_STATUS_C <> 4 OR REF.RFL_STATUS_C IS NULL) 
+AND EAP.PROC_NAME LIKE '%AMB REF TO%' AND TDEP.DEPARTMENT_NAME IS NOT NULL 
+            THEN 'Provider to Provider' ELSE 'Other' END AS PTP_FLAG
+
+
+qpr_referral_drop <- glue("DROP TABLE PROD_QPR_REFERRAL")
+qpr_referral_query <- glue("CREATE TABLE PROD_QPR_REFERRAL AS
+                             SELECT y.*, 
+                             CASE WHEN z.Arrived>0 THEN 1 ELSE NULL END AS ARRIVED_REFERRALS,
+                             CASE WHEN z.Scheduled>0 OR z.ARRIVED>0 OR z.Bumped>0 OR z.Canceled>0 OR z.Rescheduled>0 OR z.NoShow>0 OR z.Other>0 THEN 1 ELSE NULL
+                             END AS SCHEDULED_REFERRALS,
+                             CASE WHEN (z.PEND_RSN_C <> 28 OR z.PEND_RSN_C IS NULL) AND (z.RFL_STATUS_C <> 4 OR z.RFL_STATUS_C IS NULL) 
+                             AND z.PROC_NAME LIKE '%AMB REF TO%' AND z.REFD_TO_DEPT_NAME IS NOT NULL THEN 'Provider to Provider' ELSE 'Other'
+                             END AS PTP_FLAG
+                             FROM
+                             (SELECT w.*,
+                             CASE WHEN w.DEPT_MANAGED_PROV_MAP IS NOT NULL THEN w.DEPT_MANAGED_PROV_MAP
+                                  WHEN w.DEPT_MANAGED_PROV_MAP IS NULL AND w.DEPT_MANAGED_DEPT_MAP IS NOT NULL THEN w.DEPT_MANAGED_DEPT_MAP
+                                  ELSE w.DEPT_MANAGED_DEPT_MAP 
+                             END AS DEPT_MANAGED_FINAL,
+                             CASE WHEN w.SITE_PROV_MAP IS NOT NULL THEN w.SITE_PROV_MAP
+                                  WHEN w.SITE_PROV_MAP IS NULL AND w.SITE_DEPT_MAP IS NOT NULL THEN w.SITE_DEPT_MAP
+                                  WHEN w.SITE_PROV_MAP IS NULL AND w.SITE_DEPT_MAP IS NULL THEN w.CAMPUS
+                                  ELSE w.CAMPUS
+                             END AS SITE_FINAL,
+                             CASE WHEN w.OFFICE_PROCEDURE_PROV_MAP IS NOT NULL THEN w.OFFICE_PROCEDURE_PROV_MAP
+                                  WHEN w.OFFICE_PROCEDURE_PROV_MAP IS NULL AND w.OFFICE_PROCEDURE_DEPT_MAP IS NOT NULL THEN w.OFFICE_PROCEDURE_DEPT_MAP
+                             ELSE w.OFFICE_PROCEDURE_DEPT_MAP
+                             END AS OFFICE_PROCEDURE_FINAL
+                             FROM
+                             (SELECT u.*, v.DEPT_MANAGED_PROV_MAP, v.SITE_PROV_MAP, v.OFFICE_PROCEDURE_PROV_MAP
+                             FROM
+                             (SELECT s.*, t.NPI
+                             FROM
+                             (SELECT p.*, r.CAMPUS, r.CAMPUS_SPECIALTY, r.CLINICAL_DEPT_DEPT_MAP,
+                             r.CLINICAL_SUB_DEPT_DEPT_MAP, r.DEPT_MANAGED_DEPT_MAP, r.OFFICE_PROCEDURE_DEPT_MAP,
+                             r.SITE_DEPT_MAP
+                             FROM
+                             (SELECT m.*, n.NAME AS GROUPER_17_CAMPUS
+                             FROM
+                             (SELECT g.*, h.DEPARTMENT_NAME AS REFD_TO_DEPT_NAME, h.RPT_GRP_SEVNTEEN_C AS REFD_TO_GRP_SEVENTEEN_C
+                             FROM
+                             (SELECT e.*, f.PROC_NAME
+                             FROM
+                             (SELECT c.*, d.PROC_ID, d.PROC_CODE
+                             FROM
+                             (SELECT a.*, b.ORDER_ID
+                             FROM
+                             (SELECT * FROM REFERRAL) a
+                             LEFT JOIN (SELECT * FROM REFERRAL_ORDER_ID) b
+                             ON a.REFERRAL_ID = b.REFERRAL_ID) c
+                             LEFT JOIN
+                             (SELECT * FROM ORDER_PROC) d
+                             ON c.ORDER_ID = d.ORDER_PROC_ID) e
+                             LEFT JOIN
+                             (SELECT PROC_ID, PROC_NAME FROM CLARITY_EAP) f
+                             ON e.PROC_ID = f.PROC_ID) g
+                             LEFT JOIN 
+                             (SELECT DEPARTMENT_ID, DEPARTMENT_NAME, RPT_GRP_SEVNTEEN_C FROM CLARITY_DEP) h
+                             ON g.REFD_TO_DEPT_ID = h.DEPARTMENT_ID) m
+                             LEFT JOIN
+                             (SELECT * FROM ZC_DEP_RPT_GRP_17) n
+                             ON m.REFD_TO_GRP_SEVENTEEN_C = n.RPT_GRP_SEVNTEEN_C) p
+                             LEFT JOIN
+                             (SELECT * FROM MASTER_AMB_MAPPING) r
+                             ON p.REFD_TO_DEPT_ID = r.DEPARTMENT_ID) s
+                             LEFT JOIN
+                             (SELECT * FROM CLARITY_SER_2) t
+                             ON s.REFERRAL_PROV_ID = t.PROV_ID) u
+                             LEFT JOIN
+                             (SELECT * FROM MASTER_AMB_MAPPING_PROV) v
+                             ON u.REFD_TO_DEPT_ID = v.DEPARTMENT_ID AND u.NPI = v.NPI) w ) y
+                             LEFT JOIN
+                             (SELECT * FROM DEV_ACCESS_REFERRAL_PIVOT) z
+                             ON y.REFERRAL_ID = z.REFERRAL_ID
+                             ")
+                             
+
+qpr_referral_index <- glue("CREATE index qpr_referral_index on PROD_QPR_REFERRAL (REFD_TO_DEPT_ID, CAMPUS)")
+
+## Grouped Table execution
+tryCatch({
+  conn1 <- dbConnect(drv = odbc(), "OAO Cloud DB SoYoun", timeout = 30)
+  dbBegin(conn1)
+  if(dbExistsTable(conn1, "DEV_ACCESS_REFERRAL_PIVOT")){
+  dbExecute(conn1, access_referral_pivot_drop) 
+  }
+  dbExecute(conn1, access_referral_pivot_query) 
+  if(dbExistsTable(conn1, "PROD_QPR_REFERRAL")){
+  dbExecute(conn1, qpr_referral_drop) 
+  }
+  dbExecute(conn1, qpr_referral_query) 
+  dbExecute(conn1, qpr_referral_index)
+  
+  dbCommit(conn1)
+  dbDisconnect(conn1)
+  print("success")
+  
+},
+error = function(err){
+  print(paste("Error staging:", err$message))
+  dbRollback(conn1)
+  dbDisconnect(conn1)
+})
