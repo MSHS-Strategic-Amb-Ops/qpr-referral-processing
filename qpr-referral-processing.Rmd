@@ -31,19 +31,14 @@ access_referral_pivot_query <- glue("CREATE TABLE DEV_ACCESS_REFERRAL_PIVOT AS
                                     ORDER BY REFERRAL_ID;")
 
 
-CASE WHEN (REF.PEND_RSN_C <> 28 OR REF.PEND_RSN_C IS NULL) AND (REF.RFL_STATUS_C <> 4 OR REF.RFL_STATUS_C IS NULL) 
-AND EAP.PROC_NAME LIKE '%AMB REF TO%' AND TDEP.DEPARTMENT_NAME IS NOT NULL 
-            THEN 'Provider to Provider' ELSE 'Other' END AS PTP_FLAG
-
-
 qpr_referral_drop <- glue("DROP TABLE PROD_QPR_REFERRAL")
 qpr_referral_query <- glue("CREATE TABLE PROD_QPR_REFERRAL AS
                              SELECT y.*, 
                              CASE WHEN z.Arrived>0 THEN 1 ELSE NULL END AS ARRIVED_REFERRALS,
                              CASE WHEN z.Scheduled>0 OR z.ARRIVED>0 OR z.Bumped>0 OR z.Canceled>0 OR z.Rescheduled>0 OR z.NoShow>0 OR z.Other>0 THEN 1 ELSE NULL
                              END AS SCHEDULED_REFERRALS,
-                             CASE WHEN (z.PEND_RSN_C <> 28 OR z.PEND_RSN_C IS NULL) AND (z.RFL_STATUS_C <> 4 OR z.RFL_STATUS_C IS NULL) 
-                             AND z.PROC_NAME LIKE '%AMB REF TO%' AND z.REFD_TO_DEPT_NAME IS NOT NULL THEN 'Provider to Provider' ELSE 'Other'
+                             CASE WHEN (y.PEND_RSN_C <> 28 OR y.PEND_RSN_C IS NULL) AND (y.RFL_STATUS_C <> 4 OR y.RFL_STATUS_C IS NULL) 
+                             AND y.PROC_NAME LIKE '%AMB REF TO%' AND y.REFD_TO_DEPT_NAME IS NOT NULL THEN 'Provider to Provider' ELSE 'Other'
                              END AS PTP_FLAG
                              FROM
                              (SELECT w.*,
