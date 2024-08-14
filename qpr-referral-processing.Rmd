@@ -48,20 +48,29 @@ qpr_referral_query <- glue("CREATE TABLE PROD_QPR_REFERRAL AS
                              END AS DEPT_MANAGED_FINAL,
                              CASE WHEN w.SITE_PROV_MAP IS NOT NULL THEN w.SITE_PROV_MAP
                                   WHEN w.SITE_PROV_MAP IS NULL AND w.SITE_DEPT_MAP IS NOT NULL THEN w.SITE_DEPT_MAP
-                                  WHEN w.SITE_PROV_MAP IS NULL AND w.SITE_DEPT_MAP IS NULL THEN w.CAMPUS
-                                  ELSE w.CAMPUS
+                                  WHEN w.SITE_PROV_MAP IS NULL AND w.SITE_DEPT_MAP IS NULL THEN w.GROUPER_17_CAMPUS
+                                  ELSE w.GROUPER_17_CAMPUS
                              END AS SITE_FINAL,
                              CASE WHEN w.OFFICE_PROCEDURE_PROV_MAP IS NOT NULL THEN w.OFFICE_PROCEDURE_PROV_MAP
                                   WHEN w.OFFICE_PROCEDURE_PROV_MAP IS NULL AND w.OFFICE_PROCEDURE_DEPT_MAP IS NOT NULL THEN w.OFFICE_PROCEDURE_DEPT_MAP
                              ELSE w.OFFICE_PROCEDURE_DEPT_MAP
-                             END AS OFFICE_PROCEDURE_FINAL
+                             END AS OFFICE_PROCEDURE_FINAL,
+                             CASE WHEN w.CLINICAL_DEPT_PROV_MAP_ORG IS NOT NULL THEN w.CLINICAL_DEPT_PROV_MAP_ORG
+                                  WHEN w.CLINICAL_DEPT_PROV_MAP_ORG IS NULL AND w.CLINICAL_DEPT_DEPT_MAP_ORG IS NOT NULL THEN w.CLINICAL_DEPT_DEPT_MAP_ORG
+                                  ELSE w.CLINICAL_DEPT_DEPT_MAP_ORG
+                             END AS CLINICAL_DEPT_DEPT_MAP,
+                             CASE WHEN w.CLINICAL_SUB_DEPT_PROV_MAP_ORG IS NOT NULL THEN w.CLINICAL_SUB_DEPT_PROV_MAP_ORG 
+                                  WHEN w.CLINICAL_SUB_DEPT_PROV_MAP_ORG IS NULL AND w.CLINICAL_SUB_DEPT_DEPT_MAP_ORG IS NOT NULL THEN w.CLINICAL_SUB_DEPT_DEPT_MAP_ORG
+                                  ELSE w.CLINICAL_SUB_DEPT_DEPT_MAP_ORG
+                             END AS CLINICAL_SUB_DEPT_DEPT_MAP
                              FROM
-                             (SELECT u.*, v.DEPT_MANAGED_PROV_MAP, v.SITE_PROV_MAP, v.OFFICE_PROCEDURE_PROV_MAP
+                             (SELECT u.*, v.DEPT_MANAGED_PROV_MAP, v.SITE_PROV_MAP, v.OFFICE_PROCEDURE_PROV_MAP, v.CLINICAL_DEPT_PROV_MAP_ORG, 
+                             v.CLINICAL_SUB_DEPT_PROV_MAP_ORG
                              FROM
                              (SELECT s.*, t.NPI
                              FROM
-                             (SELECT p.*, r.CAMPUS, r.CAMPUS_SPECIALTY, r.CLINICAL_DEPT_DEPT_MAP,
-                             r.CLINICAL_SUB_DEPT_DEPT_MAP, r.DEPT_MANAGED_DEPT_MAP, r.OFFICE_PROCEDURE_DEPT_MAP,
+                             (SELECT p.*, r.CLINICAL_DEPT_DEPT_MAP_ORG,
+                             r.CLINICAL_SUB_DEPT_DEPT_MAP_ORG, r.DEPT_MANAGED_DEPT_MAP, r.OFFICE_PROCEDURE_DEPT_MAP,
                              r.SITE_DEPT_MAP
                              FROM
                              (SELECT m.*, n.NAME AS GROUPER_17_CAMPUS
